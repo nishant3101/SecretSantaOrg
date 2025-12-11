@@ -5,7 +5,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 
 import { setupAuth } from "./auth";     // ⭐ ADD
-import { seedAdmin } from "./seed-admin"; // ⭐ ADD
+import { seedAdmin } from "./db"; // ⭐ ADD
 
 const app = express();
 const httpServer = createServer(app);
