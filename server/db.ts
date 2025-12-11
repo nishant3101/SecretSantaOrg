@@ -10,5 +10,26 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+// Create the connection pool
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+// ⭐ Auto-create the session table on startup (Render free-tier compatible)
+(async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS "session" (
+        "sid" text PRIMARY KEY,
+        "sess" text NOT NULL,
+        "expire" text NOT NULL
+      );
+    `);
+    console.log("Session table verified/created.");
+  } catch (err) {
+    console.error("Error creating session table:", err);
+  }
+})();
+
+// Initialize drizzle ORM
 export const db = drizzle(pool, { schema });
