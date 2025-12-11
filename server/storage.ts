@@ -33,10 +33,17 @@ export interface IStorage {
 
   // Wishlist methods
   getWishlistByUserId(userId: number): Promise<Wishlist | undefined>;
-  createOrUpdateWishlist(userId: number, item1?: string, item2?: string, item3?: string): Promise<Wishlist>;
+  createOrUpdateWishlist(
+    userId: number,
+    item1?: string,
+    item2?: string,
+    item3?: string
+  ): Promise<Wishlist>;
 
   // Assignment methods
-  getAssignmentByGiverId(giverId: number): Promise<AssignmentWithDetails | undefined>;
+  getAssignmentByGiverId(
+    giverId: number
+  ): Promise<AssignmentWithDetails | undefined>;
   createAssignment(giverId: number, receiverId: number): Promise<Assignment>;
   deleteAllAssignments(): Promise<void>;
 
@@ -46,7 +53,7 @@ export interface IStorage {
 
   sessionStore: session.Store;
 
-  // new: get all users (includes admins) — used for registration logic
+  // New: get all users (including admin)
   getAllUsers(): Promise<User[]>;
 }
 
@@ -58,7 +65,7 @@ export class DatabaseStorage implements IStorage {
       pool,
       tableName: "session",
       schemaName: "public",
-      createTableIfMissing: false, // we manage the table ourselves in db.ts
+      createTableIfMissing: false, // We create it ourselves in db.ts
     });
   }
 
@@ -73,19 +80,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
+    // insertUser.role is NOT allowed (admin cannot be created manually)
     const [user] = await db
       .insert(users)
-      .values(insertUser)
+      .values({ ...insertUser, role: "participant" })
       .returning();
     return user;
   }
 
   async deleteUser(id: number): Promise<void> {
+    // Prevent deleting the fixed admin
+    const user = await this.getUser(id);
+    if (user?.role === "admin") {
+      throw new Error("Admin user cannot be deleted.");
+    }
+
     await db.delete(users).where(eq(users.id, id));
   }
 
   async updateUserWishlistStatus(id: number, completed: boolean): Promise<void> {
-    await db.update(users).set({ wishlistCompleted: completed }).where(eq(users.id, id));
+    await db
+      .update(users)
+      .set({ wishlistCompleted: completed })
+      .where(eq(users.id, id));
   }
 
   async getAllParticipants(): Promise<UserWithWishlist[]> {
@@ -98,18 +115,27 @@ export class DatabaseStorage implements IStorage {
     return participantsData as UserWithWishlist[];
   }
 
-  // New helper: return all users (including admins)
+  // New helper to retrieve all users (admin + participants)
   async getAllUsers(): Promise<User[]> {
-    const usersData = await db.select().from(users).orderBy(users.id);
-    return usersData;
+    return await db.select().from(users).orderBy(users.id);
   }
 
-  async getWishlistByUserId(userId: number): Promise<Wishlist | undefined> {
-    const [wishlist] = await db.select().from(wishlistItems).where(eq(wishlistItems.userId, userId));
+  async getWishlistByUserId(
+    userId: number
+  ): Promise<Wishlist | undefined> {
+    const [wishlist] = await db
+      .select()
+      .from(wishlistItems)
+      .where(eq(wishlistItems.userId, userId));
     return wishlist || undefined;
   }
 
-  async createOrUpdateWishlist(userId: number, item1?: string, item2?: string, item3?: string): Promise<Wishlist> {
+  async createOrUpdateWishlist(
+    userId: number,
+    item1?: string,
+    item2?: string,
+    item3?: string
+  ): Promise<Wishlist> {
     const existing = await this.getWishlistByUserId(userId);
 
     if (existing) {
@@ -128,7 +154,9 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getAssignmentByGiverId(giverId: number): Promise<AssignmentWithDetails | undefined> {
+  async getAssignmentByGiverId(
+    giverId: number
+  ): Promise<AssignmentWithDetails | undefined> {
     const result = await db.query.assignments.findFirst({
       where: eq(assignments.giverId, giverId),
     });
@@ -147,10 +175,13 @@ export class DatabaseStorage implements IStorage {
     return {
       ...result,
       receiver: receiver as User & { wishlist: Wishlist | null },
-    } as AssignmentWithDetails;
+    };
   }
 
-  async createAssignment(giverId: number, receiverId: number): Promise<Assignment> {
+  async createAssignment(
+    giverId: number,
+    receiverId: number
+  ): Promise<Assignment> {
     const [assignment] = await db
       .insert(assignments)
       .values({ giverId, receiverId })
@@ -166,7 +197,10 @@ export class DatabaseStorage implements IStorage {
     let [state] = await db.select().from(appState);
 
     if (!state) {
-      [state] = await db.insert(appState).values({ shuffleCompleted: false }).returning();
+      [state] = await db
+        .insert(appState)
+        .values({ shuffleCompleted: false })
+        .returning();
     }
 
     return state;
@@ -174,7 +208,10 @@ export class DatabaseStorage implements IStorage {
 
   async setShuffleCompleted(completed: boolean): Promise<void> {
     const state = await this.getAppState();
-    await db.update(appState).set({ shuffleCompleted: completed }).where(eq(appState.id, state.id));
+    await db
+      .update(appState)
+      .set({ shuffleCompleted: completed })
+      .where(eq(appState.id, state.id));
   }
 }
 
