@@ -31,12 +31,18 @@ const wishlistSchema = z.object({
 type WishlistFormData = z.infer<typeof wishlistSchema>;
 
 export default function ParticipantDashboard() {
-  // ⭐ logoutMutation → logout (stateless)
   const { user, logout } = useAuth();
   const { toast } = useToast();
 
+  if (!user) return null;
+
+  // ⭐ stateless backend: include userId in query
   const { data: wishlist, isLoading: loadingWishlist } = useQuery<Wishlist | null>({
-    queryKey: ["/api/my-wishlist"],
+    queryKey: ["/api/my-wishlist", user.id],
+    queryFn: async () => {
+      const res = await fetch(`/api/my-wishlist?userId=${user.id}`);
+      return res.json();
+    },
   });
 
   const { data: appState } = useQuery<AppState>({
@@ -44,17 +50,17 @@ export default function ParticipantDashboard() {
   });
 
   const { data: assignment } = useQuery<AssignmentWithDetails | null>({
-    queryKey: ["/api/my-assignment"],
+    queryKey: ["/api/my-assignment", user.id],
     enabled: appState?.shuffleCompleted === true,
+    queryFn: async () => {
+      const res = await fetch(`/api/my-assignment?giverId=${user.id}`);
+      return res.json();
+    },
   });
 
   const form = useForm<WishlistFormData>({
     resolver: zodResolver(wishlistSchema),
-    defaultValues: {
-      item1: "",
-      item2: "",
-      item3: "",
-    },
+    defaultValues: { item1: "", item2: "", item3: "" },
   });
 
   useEffect(() => {
@@ -69,22 +75,17 @@ export default function ParticipantDashboard() {
 
   const saveWishlistMutation = useMutation({
     mutationFn: async (data: WishlistFormData) => {
-      const res = await apiRequest("POST", "/api/my-wishlist", data);
+      const res = await apiRequest("POST", "/api/my-wishlist", {
+        userId: user.id,      // ⭐ REQUIRED
+        ...data,
+      });
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/my-wishlist"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      queryClient.invalidateQueries();
       toast({
         title: "Wishlist saved!",
         description: "Your gift ideas have been saved successfully",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to save wishlist",
-        description: error.message,
-        variant: "destructive",
       });
     },
   });
@@ -92,8 +93,6 @@ export default function ParticipantDashboard() {
   const handleSaveWishlist = (data: WishlistFormData) => {
     saveWishlistMutation.mutate(data);
   };
-
-  if (!user) return null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -111,7 +110,6 @@ export default function ParticipantDashboard() {
               </div>
             </div>
 
-            {/* ⭐ FIXED LOGOUT BUTTON */}
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <Button
@@ -134,120 +132,62 @@ export default function ParticipantDashboard() {
             <div>
               <CardTitle className="text-lg">Your Wishlist Status</CardTitle>
               <CardDescription>
-                {user.wishlistCompleted 
-                  ? "Your wishlist is complete!" 
+                {user.wishlistCompleted
+                  ? "Your wishlist is complete!"
                   : "Add your gift ideas so your Secret Santa knows what you'd like"}
               </CardDescription>
             </div>
 
             {user.wishlistCompleted ? (
               <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
-                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                <CheckCircle className="w-5 h-5 text-green-600" />
               </div>
             ) : (
               <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
-                <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                <Clock className="w-5 h-5 text-amber-600" />
               </div>
             )}
           </CardHeader>
         </Card>
 
-        {/* Wishlist Form */}
+        {/* Wishlist form */}
         <Card className="mb-8">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Gift className="w-5 h-5 text-primary" />
               Your Wishlist
             </CardTitle>
-            <CardDescription>
-              Add up to 3 gift ideas. Your Secret Santa will see these to help pick the perfect gift!
-            </CardDescription>
           </CardHeader>
           <CardContent>
             {loadingWishlist ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              <div className="flex justify-center py-8">
+                <Loader2 className="w-8 h-8 animate-spin" />
               </div>
             ) : (
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(handleSaveWishlist)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="item1"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center">
-                            1
-                          </span>
-                          First Gift Idea
-                        </FormLabel>
-                        <FormControl>
-                          <Input 
-                            placeholder="e.g., Cozy sweater in blue" 
-                            {...field}
-                            data-testid="input-wishlist-item1"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {["item1", "item2", "item3"].map((field, index) => (
+                    <FormField
+                      key={field}
+                      control={form.control}
+                      name={field as keyof WishlistFormData}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Gift Idea {index + 1}</FormLabel>
+                          <FormControl>
+                            <Input {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  ))}
 
-                  <FormField
-                    control={form.control}
-                    name="item2"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-primary/80 text-primary-foreground text-xs font-bold flex items-center justify-center">
-                            2
-                          </span>
-                          Second Gift Idea (Optional)
-                        </FormLabel>
-                        <FormControl>
-                          <Input 
-                            placeholder="e.g., A good fantasy book" 
-                            {...field}
-                            data-testid="input-wishlist-item2"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
+                  <Button className="w-full" disabled={saveWishlistMutation.isPending}>
+                    {saveWishlistMutation.isPending && (
+                      <Loader2 className="mr-2 w-4 h-4 animate-spin" />
                     )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="item3"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded-full bg-primary/60 text-primary-foreground text-xs font-bold flex items-center justify-center">
-                            3
-                          </span>
-                          Third Gift Idea (Optional)
-                        </FormLabel>
-                        <FormControl>
-                          <Input 
-                            placeholder="e.g., Wireless earbuds" 
-                            {...field}
-                            data-testid="input-wishlist-item3"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <Button 
-                    type="submit" 
-                    className="w-full" 
-                    disabled={saveWishlistMutation.isPending}
-                    data-testid="button-save-wishlist"
-                  >
-                    {saveWishlistMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    {user.wishlistCompleted ? "Update Wishlist" : "Save Wishlist"}
+                    Save Wishlist
                   </Button>
                 </form>
               </Form>
@@ -255,84 +195,28 @@ export default function ParticipantDashboard() {
           </CardContent>
         </Card>
 
-        {/* Assignment Section */}
+        {/* Assignment */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-primary" />
               Your Secret Santa Assignment
             </CardTitle>
-            <CardDescription>
-              {appState?.shuffleCompleted 
-                ? "Here's who you'll be giving a gift to!"
-                : "Once everyone has completed their wishlists, the admin will shuffle assignments"}
-            </CardDescription>
           </CardHeader>
 
           <CardContent>
             {!appState?.shuffleCompleted ? (
               <div className="text-center py-8">
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
-                  <Clock className="w-8 h-8 text-muted-foreground" />
-                </div>
-                <p className="text-muted-foreground font-medium">Waiting for shuffle...</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Check back later once the admin has assigned Secret Santas
-                </p>
+                <Clock className="w-8 h-8 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-muted-foreground">Waiting for shuffle…</p>
               </div>
             ) : assignment ? (
-              <div className="text-center py-4">
-                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-4">
-                  <PartyPopper className="w-10 h-10 text-primary" />
-                </div>
-
-                <h3 className="text-2xl font-bold text-foreground mb-2" data-testid="text-assignment-name">
-                  {assignment.receiver.username}
-                </h3>
-                <p className="text-muted-foreground mb-6">You are buying a gift for this person!</p>
-
-                {assignment.receiver.wishlist && (
-                  <Card className="bg-muted/30 text-left">
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                        Their Wishlist
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <ul className="space-y-3">
-                        {assignment.receiver.wishlist.item1 && (
-                          <li className="flex items-center gap-3" data-testid="text-receiver-wishlist-1">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              <Gift className="w-4 h-4 text-primary" />
-                            </div>
-                            {assignment.receiver.wishlist.item1}
-                          </li>
-                        )}
-                        {assignment.receiver.wishlist.item2 && (
-                          <li className="flex items-center gap-3" data-testid="text-receiver-wishlist-2">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              <Gift className="w-4 h-4 text-primary" />
-                            </div>
-                            {assignment.receiver.wishlist.item2}
-                          </li>
-                        )}
-                        {assignment.receiver.wishlist.item3 && (
-                          <li className="flex items-center gap-3" data-testid="text-receiver-wishlist-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              <Gift className="w-4 h-4 text-primary" />
-                            </div>
-                            {assignment.receiver.wishlist.item3}
-                          </li>
-                        )}
-                      </ul>
-                    </CardContent>
-                  </Card>
-                )}
+              <div className="text-center">
+                <PartyPopper className="w-10 h-10 mx-auto mb-2 text-primary" />
+                <h3 className="font-bold text-2xl">{assignment.receiver.username}</h3>
               </div>
             ) : (
-              <div className="text-center py-8">
-                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto" />
-              </div>
+              <Loader2 className="animate-spin w-6 h-6 mx-auto" />
             )}
           </CardContent>
         </Card>

@@ -3,19 +3,13 @@ import {
   ReactNode,
   useContext,
   useState,
-  useEffect,
 } from "react";
 import { useMutation, UseMutationResult } from "@tanstack/react-query";
 import { User as SelectUser } from "@shared/schema";
 
-import { apiRequest } from "../lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-
-import {
-  setCurrentUser,
-  clearCurrentUser,
-  getCurrentUser,
-} from "../lib/userStore";
+import { setCurrentUser, clearCurrentUser } from "@/lib/userStore";
 
 type AuthContextType = {
   user: SelectUser | null;
@@ -32,13 +26,8 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
+  const [user, setUser] = useState<SelectUser | null>(null);
 
-  // Load saved user from memory/localStorage
-  const [user, setUser] = useState<SelectUser | null>(() => getCurrentUser());
-
-  /**
-   * LOGIN MUTATION
-   */
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
       const res = await apiRequest("POST", "/api/login", credentials);
@@ -50,11 +39,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       return body.user as SelectUser;
     },
-    onSuccess: (loggedInUser: SelectUser) => {
+    onSuccess: (loggedInUser) => {
       setUser(loggedInUser);
-      setCurrentUser(loggedInUser); // store in global stateless storage
+      setCurrentUser(loggedInUser);
     },
-    onError: (error: Error) => {
+    onError: (error) => {
       toast({
         title: "Login failed",
         description: error.message,
@@ -63,31 +52,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  /**
-   * LOGOUT
-   */
   const logout = () => {
     setUser(null);
     clearCurrentUser();
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loginMutation,
-        logout,
-      }}
-    >
+    <AuthContext.Provider value={{ user, loginMutation, logout }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  return ctx;
 }
