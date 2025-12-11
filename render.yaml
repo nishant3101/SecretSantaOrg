@@ -8,24 +8,27 @@ services:
     startCommand: "npm start"
     envVars:
       - key: DATABASE_URL
-        fromDatabase: santa-db
-        name: connectionString
+        fromDatabase:
+          name: santa-db
+          property: connectionString
       - key: NODE_ENV
         value: production
       - key: SESSION_SECRET
         generateValue: true
     autoDeploy: true
 
-  # ---- FRONTEND SERVICE ----
-  - type: static
+  # ---- FRONTEND STATIC SITE ----
+  - type: web
     name: santa-frontend
+    env: static              # <--- IMPORTANT (replaces type: static)
     rootDir: client
     buildCommand: "npm install && npm run build"
-    publishPath: "dist"
+    staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        # Automatically inject backend URL
+        # Backend URL your frontend will call
         value: https://santa-backend.onrender.com
+    autoDeploy: true
 
 databases:
   - name: santa-db
