@@ -31,7 +31,8 @@ const wishlistSchema = z.object({
 type WishlistFormData = z.infer<typeof wishlistSchema>;
 
 export default function ParticipantDashboard() {
-  const { user, logoutMutation } = useAuth();
+  // ⭐ logoutMutation → logout (stateless)
+  const { user, logout } = useAuth();
   const { toast } = useToast();
 
   const { data: wishlist, isLoading: loadingWishlist } = useQuery<Wishlist | null>({
@@ -109,13 +110,14 @@ export default function ParticipantDashboard() {
                 <p className="text-sm text-muted-foreground">Welcome, {user.username}!</p>
               </div>
             </div>
+
+            {/* ⭐ FIXED LOGOUT BUTTON */}
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => logoutMutation.mutate()}
-                disabled={logoutMutation.isPending}
+                onClick={() => logout()}
                 data-testid="button-logout"
               >
                 <LogOut className="w-5 h-5" />
@@ -137,6 +139,7 @@ export default function ParticipantDashboard() {
                   : "Add your gift ideas so your Secret Santa knows what you'd like"}
               </CardDescription>
             </div>
+
             {user.wishlistCompleted ? (
               <div className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center flex-shrink-0">
                 <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
@@ -190,6 +193,7 @@ export default function ParticipantDashboard() {
                       </FormItem>
                     )}
                   />
+
                   <FormField
                     control={form.control}
                     name="item2"
@@ -212,6 +216,7 @@ export default function ParticipantDashboard() {
                       </FormItem>
                     )}
                   />
+
                   <FormField
                     control={form.control}
                     name="item3"
@@ -234,6 +239,7 @@ export default function ParticipantDashboard() {
                       </FormItem>
                     )}
                   />
+
                   <Button 
                     type="submit" 
                     className="w-full" 
@@ -262,6 +268,7 @@ export default function ParticipantDashboard() {
                 : "Once everyone has completed their wishlists, the admin will shuffle assignments"}
             </CardDescription>
           </CardHeader>
+
           <CardContent>
             {!appState?.shuffleCompleted ? (
               <div className="text-center py-8">
@@ -278,11 +285,12 @@ export default function ParticipantDashboard() {
                 <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-primary/10 mb-4">
                   <PartyPopper className="w-10 h-10 text-primary" />
                 </div>
+
                 <h3 className="text-2xl font-bold text-foreground mb-2" data-testid="text-assignment-name">
                   {assignment.receiver.username}
                 </h3>
                 <p className="text-muted-foreground mb-6">You are buying a gift for this person!</p>
-                
+
                 {assignment.receiver.wishlist && (
                   <Card className="bg-muted/30 text-left">
                     <CardHeader className="pb-2">
@@ -294,26 +302,26 @@ export default function ParticipantDashboard() {
                       <ul className="space-y-3">
                         {assignment.receiver.wishlist.item1 && (
                           <li className="flex items-center gap-3" data-testid="text-receiver-wishlist-1">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                               <Gift className="w-4 h-4 text-primary" />
                             </div>
-                            <span className="text-foreground">{assignment.receiver.wishlist.item1}</span>
+                            {assignment.receiver.wishlist.item1}
                           </li>
                         )}
                         {assignment.receiver.wishlist.item2 && (
                           <li className="flex items-center gap-3" data-testid="text-receiver-wishlist-2">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                               <Gift className="w-4 h-4 text-primary" />
                             </div>
-                            <span className="text-foreground">{assignment.receiver.wishlist.item2}</span>
+                            {assignment.receiver.wishlist.item2}
                           </li>
                         )}
                         {assignment.receiver.wishlist.item3 && (
                           <li className="flex items-center gap-3" data-testid="text-receiver-wishlist-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                               <Gift className="w-4 h-4 text-primary" />
                             </div>
-                            <span className="text-foreground">{assignment.receiver.wishlist.item3}</span>
+                            {assignment.receiver.wishlist.item3}
                           </li>
                         )}
                       </ul>

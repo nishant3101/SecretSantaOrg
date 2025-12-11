@@ -3,8 +3,23 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Loader2, Gift } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Gift, Snowflake, Users, Sparkles, Loader2 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -18,7 +33,8 @@ type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function AuthPage() {
   const [, navigate] = useLocation();
-  const { user, loginMutation } = useAuth();
+  const { user, loginMutation } = useAuth(); // only login now
+  const [activeTab, setActiveTab] = useState<"login">("login");
 
   const loginForm = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
@@ -26,6 +42,7 @@ export default function AuthPage() {
   });
 
   if (user) {
+    // Redirect after login
     navigate("/");
     return null;
   }
@@ -36,7 +53,7 @@ export default function AuthPage() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      {/* Left column - Login form */}
+      {/* Left column */}
       <div className="flex-1 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
           <div className="text-center mb-8">
@@ -45,76 +62,166 @@ export default function AuthPage() {
             </div>
             <h1 className="text-3xl font-bold text-foreground">Secret Santa</h1>
             <p className="text-muted-foreground mt-2">
-              Sign in to continue
+              Organize your gift exchange with ease
             </p>
           </div>
 
-          <div className="border rounded-lg p-6 shadow-sm bg-card">
-            <h2 className="text-xl font-semibold mb-4">Login</h2>
+          <Card>
+            <CardHeader className="pb-4">
+              <Tabs
+                value={activeTab}
+                onValueChange={(v) => setActiveTab(v as "login")}
+              >
+                <TabsList className="grid w-full grid-cols-1">
+                  <TabsTrigger value="login" data-testid="tab-login">
+                    Sign In
+                  </TabsTrigger>
+                </TabsList>
 
-            <Form {...loginForm}>
-              <form onSubmit={loginForm.handleSubmit(onLogin)} className="space-y-4">
-                <FormField
-                  control={loginForm.control}
-                  name="username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Username</FormLabel>
-                      <FormControl>
-                        <Input 
-                          placeholder="Enter your username"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <TabsContent value="login" className="mt-4">
+                  <CardTitle className="text-xl">Welcome back</CardTitle>
+                  <CardDescription>
+                    Enter your credentials to access your account
+                  </CardDescription>
+                </TabsContent>
+              </Tabs>
+            </CardHeader>
 
-                <FormField
-                  control={loginForm.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Password</FormLabel>
-                      <FormControl>
-                        <Input 
-                          type="password"
-                          placeholder="Enter your password"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+            <CardContent>
+              <Tabs value="login">
+                <TabsContent value="login">
+                  <Form {...loginForm}>
+                    <form
+                      onSubmit={loginForm.handleSubmit(onLogin)}
+                      className="space-y-4"
+                    >
+                      <FormField
+                        control={loginForm.control}
+                        name="username"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Username</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="Enter your username"
+                                {...field}
+                                data-testid="input-login-username"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                <Button 
-                  type="submit"
-                  className="w-full"
-                  disabled={loginMutation.isPending}
-                >
-                  {loginMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Sign In
-                </Button>
-              </form>
-            </Form>
-          </div>
+                      <FormField
+                        control={loginForm.control}
+                        name="password"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Password</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="password"
+                                placeholder="Enter your password"
+                                {...field}
+                                data-testid="input-login-password"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <Button
+                        type="submit"
+                        className="w-full"
+                        disabled={loginMutation.isPending}
+                        data-testid="button-login-submit"
+                      >
+                        {loginMutation.isPending && (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        )}
+                        Sign In
+                      </Button>
+                    </form>
+                  </Form>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
-      {/* Right Column - UI Banner (unchanged) */}
+      {/* Right column */}
       <div className="hidden lg:flex flex-1 bg-primary/5 items-center justify-center p-12 relative overflow-hidden">
+        <div className="absolute inset-0 opacity-5">
+          <div className="absolute top-10 left-10">
+            <Snowflake className="w-24 h-24 text-primary" />
+          </div>
+          <div className="absolute bottom-20 right-20">
+            <Snowflake className="w-32 h-32 text-primary" />
+          </div>
+          <div className="absolute top-1/2 right-10">
+            <Snowflake className="w-16 h-16 text-primary" />
+          </div>
+        </div>
+
         <div className="relative z-10 max-w-lg text-center">
           <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-primary/10 mb-8">
             <Gift className="w-12 h-12 text-primary" />
           </div>
+
           <h2 className="text-4xl font-bold text-foreground mb-6">
             Make Gift Giving Magical
           </h2>
           <p className="text-lg text-muted-foreground mb-8">
-            Organize your Secret Santa event effortlessly.
+            Organize your Secret Santa event effortlessly. Create participants,
+            collect wishlists, and let random matching bring joy to everyone.
           </p>
+
+          <div className="grid gap-6 mt-10">
+            <div className="flex items-center gap-4 text-left bg-background/80 rounded-lg p-4">
+              <div className="flex-shrink-0 w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                <Users className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-foreground">
+                  Easy Participant Management
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Create accounts for all participants easily
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 text-left bg-background/80 rounded-lg p-4">
+              <div className="flex-shrink-0 w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                <Gift className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-foreground">
+                  Wishlist Collection
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Each participant can add up to 3 gift ideas
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4 text-left bg-background/80 rounded-lg p-4">
+              <div className="flex-shrink-0 w-10 h-10 bg-primary/10 rounded-full flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-foreground">
+                  Secret Shuffle
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Randomly assign gift givers while keeping it a surprise
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
