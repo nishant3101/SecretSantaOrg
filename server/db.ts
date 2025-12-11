@@ -1,14 +1,16 @@
 // server/db.ts
-import { db } from "./storage";
+import { storage } from "./storage";
 
 export async function seedAdmin() {
-  const existing = await db.getUserByUsername("admin");
+  const existing = await storage.getUserByUsername("admin");
   if (existing) return;
 
-  await db.createUser({
+  await storage.createUser({
+    id: Date.now(),       // simple unique ID
     username: "admin",
-    password: "A1AB2BC2C",   // ⭐ Plain text (Option 1)
+    password: "admin123", // plain text (Option 1)
     role: "admin",
+    wishlistCompleted: false,
   });
 
   console.log("Seeded admin user → username: admin | password: admin123");
