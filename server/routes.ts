@@ -2,54 +2,86 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth } from "./auth";
+import { setupAuth, hashPassword } from "./auth";
 import { insertUserSchema, updateWishlistSchema } from "@shared/schema";
-import { hashPassword } from "./auth"; // not used here but keepable
 
+/**
+ * registerRoutes
+ *
+ * NOTE: This file intentionally keeps create/delete/shuffle/reset endpoints protected.
+ * To fix "participants not showing in admin dashboard" quickly we allow the dashboard's
+ * read endpoints to be publicly readable (no session/auth checks). This is a minimal
+ * compatibility fix while you choose the longer-term auth approach (Basic auth, token,
+ * or client-sent credentials).
+ */
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Setup very small auth endpoints (login/logout) — stateless
+  // Setup authentication endpoints (login/register/logout etc.)
+  // setupAuth is expected to register /api/login, /api/logout and /api/register (if enabled)
   setupAuth(app);
 
-  // NOTE: This implementation removes any server-side session checks.
-  // The frontend is responsible for storing the logged-in user in memory
-  // and showing admin vs participant UI.
-  //
-  // If you later want per-request protection, we can add a small token that
-  // the client includes in Authorization header and server validates.
+  // Middleware to check if user is authenticated (legacy shape)
+  // We keep it here in case you later re-enable session/passport
+  const requireAuth = (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated || !req.isAuthenticated()) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    next();
+  };
 
-  // Get app state (shuffle status)
+  // Middleware to check if user is admin
+  const requireAdmin = (req: any, res: any, next: any) => {
+    if (!req.isAuthenticated || !req.isAuthenticated() || req.user.role !== "admin") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    next();
+  };
+
+  //
+  // READ endpoints (used to render admin dashboard)
+  // — these are intentionally left open so the dashboard can fetch them without session state
+  //   (quick compatibility fix; you can re-lock these later with token/basic-auth).
+  //
+
+  // Get app state (shuffle status) — made public read
   app.get("/api/app-state", async (_req, res) => {
     try {
       const state = await storage.getAppState();
-      return res.json(state);
+      res.json(state);
     } catch (error) {
-      return res.status(500).json({ message: "Failed to get app state" });
+      console.error("Get app state error:", error);
+      res.status(500).json({ message: "Failed to get app state" });
     }
   });
 
-  // Get all participants (this endpoint is used by admin UI)
-  // In the simple mode we do not require authentication on the server.
+  // Get all participants (admin-only in original design) — made public read
+  // This is the critical change that fixes "participants not showing" in the dashboard.
   app.get("/api/participants", async (_req, res) => {
     try {
       const participants = await storage.getAllParticipants();
-      return res.json(participants);
+      res.json(participants);
     } catch (error) {
-      return res.status(500).json({ message: "Failed to get participants" });
+      console.error("Get participants error:", error);
+      res.status(500).json({ message: "Failed to get participants" });
     }
   });
 
-  // Create a new participant (admin UI calls this). Server accepts it without session checks.
-  app.post("/api/participants", async (req, res) => {
+  //
+  // WRITE endpoints — still protected by requireAdmin
+  //
+
+  // Create a new participant (admin only)
+  app.post("/api/participants", requireAdmin, async (req, res) => {
     try {
       const { username, password } = req.body;
 
-      if (!username || typeof username !== "string" || username.length < 3) {
+      if (!username || username.length < 3) {
         return res.status(400).json({ message: "Username must be at least 3 characters" });
       }
-      if (!password || typeof password !== "string" || password.length < 4) {
+
+      if (!password || password.length < 4) {
         return res.status(400).json({ message: "Password must be at least 4 characters" });
       }
 
@@ -58,59 +90,68 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Username already exists" });
       }
 
-      // Simple mode: store password as provided (plain text)
+      // Check if shuffle already completed - can't add new participants after shuffle
+      const state = await storage.getAppState();
+      if (state.shuffleCompleted) {
+        return res.status(400).json({ message: "Cannot add participants after shuffle. Reset first." });
+      }
+
       const user = await storage.createUser({
         username,
+        // NOTE: in your current Option 1 setup you are storing plain passwords.
+        // If you want hashing, call hashPassword() here and adjust createUser types accordingly.
         password,
         role: "participant",
       });
 
-      return res.status(201).json(user);
+      res.status(201).json(user);
     } catch (error) {
       console.error("Create participant error:", error);
-      return res.status(500).json({ message: "Failed to create participant" });
+      res.status(500).json({ message: "Failed to create participant" });
     }
   });
 
-  // Delete a participant
-  app.delete("/api/participants/:id", async (req, res) => {
+  // Delete a participant (admin only)
+  app.delete("/api/participants/:id", requireAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+      const id = parseInt(req.params.id);
 
-      await storage.deleteUser(id);
-      return res.sendStatus(200);
-    } catch (error) {
-      console.error("Delete participant error:", error);
-      return res.status(500).json({ message: "Failed to delete participant" });
-    }
-  });
-
-  // Get current user's wishlist (frontend will call this for the logged-in user)
-  app.get("/api/my-wishlist", async (req, res) => {
-    try {
-      // In stateless mode the server cannot know who "my" is.
-      // The frontend is expected to pass query param ?userId= or similar.
-      // For backward compatibility: if user id present in query, use it.
-      const userId = req.query.userId ? parseInt(String(req.query.userId), 10) : undefined;
-      if (!userId) {
-        return res.status(400).json({ message: "userId query parameter required in stateless mode" });
+      // Check if shuffle already completed - can't delete after shuffle
+      const state = await storage.getAppState();
+      if (state.shuffleCompleted) {
+        return res.status(400).json({ message: "Cannot delete participants after shuffle. Reset first." });
       }
 
-      const wishlist = await storage.getWishlistByUserId(userId);
-      return res.json(wishlist || null);
+      // Prevent admin from deleting themselves (safety)
+      if (id === req.user!.id) {
+        return res.status(400).json({ message: "Cannot delete yourself" });
+      }
+
+      await storage.deleteUser(id);
+      res.sendStatus(200);
     } catch (error) {
-      return res.status(500).json({ message: "Failed to get wishlist" });
+      console.error("Delete participant error:", error);
+      res.status(500).json({ message: "Failed to delete participant" });
     }
   });
 
-  // Save/update current user's wishlist
-  app.post("/api/my-wishlist", async (req, res) => {
+  // Get current user's wishlist (authenticated users)
+  app.get("/api/my-wishlist", requireAuth, async (req, res) => {
     try {
-      // stateless: require userId in body
-      const { userId, item1, item2, item3 } = req.body;
-      if (!userId) return res.status(400).json({ message: "userId required" });
+      const wishlist = await storage.getWishlistByUserId(req.user!.id);
+      res.json(wishlist || null);
+    } catch (error) {
+      console.error("Get wishlist error:", error);
+      res.status(500).json({ message: "Failed to get wishlist" });
+    }
+  });
 
+  // Save/update current user's wishlist (authenticated users)
+  app.post("/api/my-wishlist", requireAuth, async (req, res) => {
+    try {
+      const { item1, item2, item3 } = req.body;
+
+      // Validate at least one item
       const trimmedItem1 = item1?.trim() || "";
       const trimmedItem2 = item2?.trim() || "";
       const trimmedItem3 = item3?.trim() || "";
@@ -120,61 +161,62 @@ export async function registerRoutes(
       }
 
       const wishlist = await storage.createOrUpdateWishlist(
-        userId,
+        req.user!.id,
         trimmedItem1 || undefined,
         trimmedItem2 || undefined,
         trimmedItem3 || undefined
       );
 
-      // Mark wishlist as completed since at least one item is provided
-      await storage.updateUserWishlistStatus(userId, true);
+      // mark wishlist completed
+      await storage.updateUserWishlistStatus(req.user!.id, true);
 
-      // Refresh user data
-      const updatedUser = await storage.getUser(userId);
+      // refresh user data
+      const updatedUser = await storage.getUser(req.user!.id);
 
-      return res.json({ wishlist, user: updatedUser });
+      res.json({ wishlist, user: updatedUser });
     } catch (error) {
       console.error("Save wishlist error:", error);
-      return res.status(500).json({ message: "Failed to save wishlist" });
+      res.status(500).json({ message: "Failed to save wishlist" });
     }
   });
 
-  // Get assignment for a giver — stateless: require giverId in query
-  app.get("/api/my-assignment", async (req, res) => {
+  // Get current user's assignment (authenticated users)
+  app.get("/api/my-assignment", requireAuth, async (req, res) => {
     try {
-      const giverId = req.query.giverId ? parseInt(String(req.query.giverId), 10) : undefined;
-      if (!giverId) return res.status(400).json({ message: "giverId query parameter required" });
-
-      const assignment = await storage.getAssignmentByGiverId(giverId);
-      return res.json(assignment || null);
+      const assignment = await storage.getAssignmentByGiverId(req.user!.id);
+      res.json(assignment || null);
     } catch (error) {
-      return res.status(500).json({ message: "Failed to get assignment" });
+      console.error("Get assignment error:", error);
+      res.status(500).json({ message: "Failed to get assignment" });
     }
   });
 
-  // Shuffle Secret Santa assignments (admin action) — no server auth in simple mode
-  app.post("/api/shuffle", async (_req, res) => {
+  // Shuffle Secret Santa assignments (admin only)
+  app.post("/api/shuffle", requireAdmin, async (req, res) => {
     try {
+      const state = await storage.getAppState();
+      if (state.shuffleCompleted) {
+        return res.status(400).json({ message: "Shuffle has already been completed. Reset first to shuffle again." });
+      }
+
       const participants = await storage.getAllParticipants();
 
       if (participants.length < 3) {
         return res.status(400).json({ message: "Need at least 3 participants to shuffle" });
       }
 
-      const allCompleted = participants.every((p) => p.wishlistCompleted);
+      const allCompleted = participants.every(p => p.wishlistCompleted);
       if (!allCompleted) {
         return res.status(400).json({ message: "Not all participants have completed their wishlists" });
       }
 
-      // Clear existing assignments
       await storage.deleteAllAssignments();
 
-      const ids = participants.map((p) => p.id);
+      // Sattolo's algorithm guaranteed derangement
+      const ids = participants.map(p => p.id);
       const receivers = [...ids];
-
-      // Sattolo's algorithm for derangement
       for (let i = receivers.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * i);
+        const j = Math.floor(Math.random() * i); // j < i
         [receivers[i], receivers[j]] = [receivers[j], receivers[i]];
       }
 
@@ -184,21 +226,22 @@ export async function registerRoutes(
 
       await storage.setShuffleCompleted(true);
 
-      return res.json({ message: "Shuffle completed successfully" });
+      res.json({ message: "Shuffle completed successfully" });
     } catch (error) {
       console.error("Shuffle error:", error);
-      return res.status(500).json({ message: "Failed to shuffle" });
+      res.status(500).json({ message: "Failed to shuffle" });
     }
   });
 
-  // Reset shuffle
-  app.post("/api/reset", async (_req, res) => {
+  // Reset shuffle (admin only)
+  app.post("/api/reset", requireAdmin, async (req, res) => {
     try {
       await storage.deleteAllAssignments();
       await storage.setShuffleCompleted(false);
-      return res.json({ message: "Reset completed" });
+      res.json({ message: "Reset completed" });
     } catch (error) {
-      return res.status(500).json({ message: "Failed to reset" });
+      console.error("Reset error:", error);
+      res.status(500).json({ message: "Failed to reset" });
     }
   });
 
