@@ -1,11 +1,11 @@
-import { 
-  users, 
-  wishlistItems, 
-  assignments, 
+import {
+  users,
+  wishlistItems,
+  assignments,
   appState,
-  type User, 
-  type InsertUser, 
-  type Wishlist, 
+  type User,
+  type InsertUser,
+  type Wishlist,
   type InsertWishlist,
   type Assignment,
   type AppState,
@@ -27,35 +27,38 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   deleteUser(id: number): Promise<void>;
   updateUserWishlistStatus(id: number, completed: boolean): Promise<void>;
-  
+
   // Participant methods (excluding admins)
   getAllParticipants(): Promise<UserWithWishlist[]>;
-  
+
   // Wishlist methods
   getWishlistByUserId(userId: number): Promise<Wishlist | undefined>;
   createOrUpdateWishlist(userId: number, item1?: string, item2?: string, item3?: string): Promise<Wishlist>;
-  
+
   // Assignment methods
   getAssignmentByGiverId(giverId: number): Promise<AssignmentWithDetails | undefined>;
   createAssignment(giverId: number, receiverId: number): Promise<Assignment>;
   deleteAllAssignments(): Promise<void>;
-  
+
   // App state methods
   getAppState(): Promise<AppState>;
   setShuffleCompleted(completed: boolean): Promise<void>;
-  
+
   sessionStore: session.Store;
+
+  // new: get all users (includes admins) — used for registration logic
+  getAllUsers(): Promise<User[]>;
 }
 
 export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    this.sessionStore = new PostgresSessionStore({ 
-      pool, 
-      createTableIfMissing: true ,
-       tableName: "session",
-      schemaName: "public"
+    this.sessionStore = new PostgresSessionStore({
+      pool,
+      tableName: "session",
+      schemaName: "public",
+      createTableIfMissing: false, // we manage the table ourselves in db.ts
     });
   }
 
@@ -95,6 +98,12 @@ export class DatabaseStorage implements IStorage {
     return participantsData as UserWithWishlist[];
   }
 
+  // New helper: return all users (including admins)
+  async getAllUsers(): Promise<User[]> {
+    const usersData = await db.select().from(users).orderBy(users.id);
+    return usersData;
+  }
+
   async getWishlistByUserId(userId: number): Promise<Wishlist | undefined> {
     const [wishlist] = await db.select().from(wishlistItems).where(eq(wishlistItems.userId, userId));
     return wishlist || undefined;
@@ -102,7 +111,7 @@ export class DatabaseStorage implements IStorage {
 
   async createOrUpdateWishlist(userId: number, item1?: string, item2?: string, item3?: string): Promise<Wishlist> {
     const existing = await this.getWishlistByUserId(userId);
-    
+
     if (existing) {
       const [updated] = await db
         .update(wishlistItems)
@@ -155,11 +164,11 @@ export class DatabaseStorage implements IStorage {
 
   async getAppState(): Promise<AppState> {
     let [state] = await db.select().from(appState);
-    
+
     if (!state) {
       [state] = await db.insert(appState).values({ shuffleCompleted: false }).returning();
     }
-    
+
     return state;
   }
 

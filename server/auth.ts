@@ -32,14 +32,14 @@ export function setupAuth(app: Express) {
   if (!process.env.SESSION_SECRET) {
     throw new Error("SESSION_SECRET must be set");
   }
-  
+
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
-      secure: false, // Set to true only with HTTPS
+      secure: false,
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       sameSite: "lax",
@@ -59,7 +59,7 @@ export function setupAuth(app: Express) {
       } else {
         return done(null, user);
       }
-    }),
+    })
   );
 
   passport.serializeUser((user, done) => done(null, user.id));
@@ -68,17 +68,27 @@ export function setupAuth(app: Express) {
     done(null, user);
   });
 
+  // Secure registration route: first-ever user -> admin, others -> participant
   app.post("/api/register", async (req, res, next) => {
     try {
-      const existingUser = await storage.getUserByUsername(req.body.username);
+      const { username, password } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ message: "username and password required" });
+      }
+
+      const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
         return res.status(400).send("Username already exists");
       }
 
+      // Use storage.getAllUsers() which returns all users (includes admins)
+      const allUsers = await storage.getAllUsers();
+      const isFirstUser = allUsers.length === 0;
+
       const user = await storage.createUser({
-        ...req.body,
-        password: await hashPassword(req.body.password),
-        role: req.body.role || "admin",
+        username,
+        password: await hashPassword(password),
+        role: isFirstUser ? "admin" : "participant",
       });
 
       req.login(user, (err) => {

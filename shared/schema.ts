@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, integer, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, integer, serial, json, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -33,6 +33,13 @@ export const assignments = pgTable("assignments", {
 export const appState = pgTable("app_state", {
   id: serial("id").primaryKey(),
   shuffleCompleted: boolean("shuffle_completed").notNull().default(false),
+});
+
+// Session table for express-session + connect-pg-simple
+export const session = pgTable("session", {
+  sid: text("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire", { withTimezone: true }).notNull(),
 });
 
 // Relations
@@ -71,7 +78,7 @@ export const assignmentsRelations = relations(assignments, ({ one }) => ({
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
-  role: true,
+  // note: role intentionally excluded to prevent client-side role assignment
 });
 
 export const insertWishlistSchema = createInsertSchema(wishlistItems).pick({
