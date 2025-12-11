@@ -5,9 +5,6 @@ import { storage } from "./storage";
 
 const scryptAsync = promisify(scrypt);
 
-/**
- * Exports used by db.ts to create initial admin user.
- */
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
@@ -22,14 +19,8 @@ export async function comparePasswords(supplied: string, stored: string) {
   return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
-/**
- * Setup auth routes (stateless, no sessions).
- * - POST /api/login  => { success: true, user }
- *
- * Frontend must store the returned user in memory (React state).
- */
 export function setupAuth(app: Express) {
-  // Simple login endpoint
+  // POST /api/login
   app.post("/api/login", async (req, res) => {
     try {
       const { username, password } = req.body || {};
@@ -47,7 +38,6 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Invalid username or password" });
       }
 
-      // Return the user object (do NOT include password in response)
       const { password: _p, ...safeUser } = user as any;
       return res.json({ success: true, user: safeUser });
     } catch (err) {
@@ -56,5 +46,5 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // No logout route required - frontend simply forgets the user in memory.
+  // no sessions, no logout endpoint (frontend clears its memory)
 }

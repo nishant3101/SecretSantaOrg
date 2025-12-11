@@ -1,18 +1,12 @@
-/**
- * Simple global user store (no sessions).
- * Used by queryClient to inject x-user-id automatically.
- */
-
-let currentUser: any = null;
-
-export function setCurrentUser(user: any) {
-  currentUser = user;
-}
-
-export function clearCurrentUser() {
-  currentUser = null;
+export function setCurrentUser(user) {
+  localStorage.setItem("ss-user", JSON.stringify(user));
 }
 
 export function getCurrentUser() {
-  return currentUser;
+  const raw = localStorage.getItem("ss-user");
+  return raw ? JSON.parse(raw) : null;
+}
+
+export function clearCurrentUser() {
+  localStorage.removeItem("ss-user");
 }

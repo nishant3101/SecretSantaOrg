@@ -3,6 +3,7 @@ import {
   ReactNode,
   useContext,
   useState,
+  useEffect,
 } from "react";
 import { useMutation, UseMutationResult } from "@tanstack/react-query";
 import { User as SelectUser } from "@shared/schema";
@@ -10,7 +11,11 @@ import { User as SelectUser } from "@shared/schema";
 import { apiRequest } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
-import { setCurrentUser, clearCurrentUser } from "../lib/userStore";
+import {
+  setCurrentUser,
+  clearCurrentUser,
+  getCurrentUser,
+} from "../lib/userStore";
 
 type AuthContextType = {
   user: SelectUser | null;
@@ -23,18 +28,16 @@ type LoginData = {
   password: string;
 };
 
-// Context container
 export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
 
-  // Stateless: only store user in React memory
-  const [user, setUser] = useState<SelectUser | null>(null);
+  // Load saved user from memory/localStorage
+  const [user, setUser] = useState<SelectUser | null>(() => getCurrentUser());
 
   /**
    * LOGIN MUTATION
-   * Calls POST /api/login and sets user in React + global store
    */
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
@@ -49,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: (loggedInUser: SelectUser) => {
       setUser(loggedInUser);
-      setCurrentUser(loggedInUser); // allow global x-user-id injection
+      setCurrentUser(loggedInUser); // store in global stateless storage
     },
     onError: (error: Error) => {
       toast({
@@ -61,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   /**
-   * LOGOUT — simply clears memory (stateless)
+   * LOGOUT
    */
   const logout = () => {
     setUser(null);
@@ -81,7 +84,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// Hook to use auth
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
