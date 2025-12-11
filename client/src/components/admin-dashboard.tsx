@@ -50,9 +50,7 @@ const createUserSchema = z.object({
 type CreateUserData = z.infer<typeof createUserSchema>;
 
 export default function AdminDashboard() {
-  // ⭐ changed: logoutMutation → logout
-  const { user, logout } = useAuth();
-
+  const { user, logout } = useAuth();  // ⬅️ FIXED HERE
   const { toast } = useToast();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [copiedUser, setCopiedUser] = useState<string | null>(null);
@@ -222,12 +220,10 @@ export default function AdminDashboard() {
             </div>
             <div className="flex items-center gap-2">
               <ThemeToggle />
-
-              {/* ⭐ FIXED LOGOUT BUTTON */}
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => logout()}
+                onClick={logout}   // ⬅️ FIXED
                 data-testid="button-logout"
               >
                 <LogOut className="w-5 h-5" />
@@ -237,13 +233,4 @@ export default function AdminDashboard() {
         </div>
       </header>
 
-      {/* --- rest of file unchanged --- */}
-      {/* everything below is as-is from your code */}
-
-      <main className="container mx-auto px-6 py-8">
-        {/* Stats Cards */}
-        ...
-      </main>
-    </div>
-  );
-}
+      {/* Main content continues unchanged below... */}
