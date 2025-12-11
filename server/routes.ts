@@ -2,28 +2,21 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { setupAuth, hashPassword } from "./auth";
+import { setupAuth } from "./auth";
 import { insertUserSchema, updateWishlistSchema } from "@shared/schema";
 
-/**
- * registerRoutes
- *
- * NOTE: This file intentionally keeps create/delete/shuffle/reset endpoints protected.
- * To fix "participants not showing in admin dashboard" quickly we allow the dashboard's
- * read endpoints to be publicly readable (no session/auth checks). This is a minimal
- * compatibility fix while you choose the longer-term auth approach (Basic auth, token,
- * or client-sent credentials).
- */
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Setup authentication endpoints (login/register/logout etc.)
-  // setupAuth is expected to register /api/login, /api/logout and /api/register (if enabled)
+  //
+  // AUTH ROUTES (login/logout)
+  //
   setupAuth(app);
 
-  // Middleware to check if user is authenticated (legacy shape)
-  // We keep it here in case you later re-enable session/passport
+  //
+  // Legacy requireAuth (not used for admin anymore)
+  //
   const requireAuth = (req: any, res: any, next: any) => {
     if (!req.isAuthenticated || !req.isAuthenticated()) {
       return res.status(401).json({ message: "Unauthorized" });
@@ -31,21 +24,24 @@ export async function registerRoutes(
     next();
   };
 
-  // Middleware to check if user is admin
+  //
+  // NEW STATELESS ADMIN CHECK
+  //
   const requireAdmin = (req: any, res: any, next: any) => {
-    if (!req.isAuthenticated || !req.isAuthenticated() || req.user.role !== "admin") {
+    const token = req.headers["x-admin-secret"];
+    if (!token || token !== process.env.ADMIN_SECRET) {
       return res.status(403).json({ message: "Forbidden" });
     }
     next();
   };
 
   //
-  // READ endpoints (used to render admin dashboard)
-  // — these are intentionally left open so the dashboard can fetch them without session state
-  //   (quick compatibility fix; you can re-lock these later with token/basic-auth).
+  // -----------------------------
+  // PUBLIC READ ENDPOINTS
+  // -----------------------------
   //
 
-  // Get app state (shuffle status) — made public read
+  // Get app state (shuffle status)
   app.get("/api/app-state", async (_req, res) => {
     try {
       const state = await storage.getAppState();
@@ -56,8 +52,8 @@ export async function registerRoutes(
     }
   });
 
-  // Get all participants (admin-only in original design) — made public read
-  // This is the critical change that fixes "participants not showing" in the dashboard.
+  // Get all participants (PUBLIC READ)
+  // This stays open so the admin dashboard can load participants without auth
   app.get("/api/participants", async (_req, res) => {
     try {
       const participants = await storage.getAllParticipants();
@@ -69,10 +65,12 @@ export async function registerRoutes(
   });
 
   //
-  // WRITE endpoints — still protected by requireAdmin
+  // -----------------------------
+  // ADMIN WRITE ENDPOINTS
+  // -----------------------------
   //
 
-  // Create a new participant (admin only)
+  // Create participant (admin only)
   app.post("/api/participants", requireAdmin, async (req, res) => {
     try {
       const { username, password } = req.body;
@@ -90,7 +88,6 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Username already exists" });
       }
 
-      // Check if shuffle already completed - can't add new participants after shuffle
       const state = await storage.getAppState();
       if (state.shuffleCompleted) {
         return res.status(400).json({ message: "Cannot add participants after shuffle. Reset first." });
@@ -98,8 +95,6 @@ export async function registerRoutes(
 
       const user = await storage.createUser({
         username,
-        // NOTE: in your current Option 1 setup you are storing plain passwords.
-        // If you want hashing, call hashPassword() here and adjust createUser types accordingly.
         password,
         role: "participant",
       });
@@ -111,20 +106,14 @@ export async function registerRoutes(
     }
   });
 
-  // Delete a participant (admin only)
+  // Delete participant (admin only)
   app.delete("/api/participants/:id", requireAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
 
-      // Check if shuffle already completed - can't delete after shuffle
       const state = await storage.getAppState();
       if (state.shuffleCompleted) {
         return res.status(400).json({ message: "Cannot delete participants after shuffle. Reset first." });
-      }
-
-      // Prevent admin from deleting themselves (safety)
-      if (id === req.user!.id) {
-        return res.status(400).json({ message: "Cannot delete yourself" });
       }
 
       await storage.deleteUser(id);
@@ -135,7 +124,13 @@ export async function registerRoutes(
     }
   });
 
-  // Get current user's wishlist (authenticated users)
+  //
+  // -----------------------------
+  // PARTICIPANT WISHLIST ROUTES
+  // -----------------------------
+  //
+
+  // Get current user's wishlist
   app.get("/api/my-wishlist", requireAuth, async (req, res) => {
     try {
       const wishlist = await storage.getWishlistByUserId(req.user!.id);
@@ -146,12 +141,11 @@ export async function registerRoutes(
     }
   });
 
-  // Save/update current user's wishlist (authenticated users)
+  // Update wishlist
   app.post("/api/my-wishlist", requireAuth, async (req, res) => {
     try {
       const { item1, item2, item3 } = req.body;
 
-      // Validate at least one item
       const trimmedItem1 = item1?.trim() || "";
       const trimmedItem2 = item2?.trim() || "";
       const trimmedItem3 = item3?.trim() || "";
@@ -167,10 +161,8 @@ export async function registerRoutes(
         trimmedItem3 || undefined
       );
 
-      // mark wishlist completed
       await storage.updateUserWishlistStatus(req.user!.id, true);
 
-      // refresh user data
       const updatedUser = await storage.getUser(req.user!.id);
 
       res.json({ wishlist, user: updatedUser });
@@ -180,7 +172,13 @@ export async function registerRoutes(
     }
   });
 
-  // Get current user's assignment (authenticated users)
+  //
+  // -----------------------------
+  // SECRET SANTA ASSIGNMENT ROUTES
+  // -----------------------------
+  //
+
+  // Get current user's assignment
   app.get("/api/my-assignment", requireAuth, async (req, res) => {
     try {
       const assignment = await storage.getAssignmentByGiverId(req.user!.id);
@@ -191,12 +189,12 @@ export async function registerRoutes(
     }
   });
 
-  // Shuffle Secret Santa assignments (admin only)
-  app.post("/api/shuffle", requireAdmin, async (req, res) => {
+  // Shuffle assignments (admin only)
+  app.post("/api/shuffle", requireAdmin, async (_req, res) => {
     try {
       const state = await storage.getAppState();
       if (state.shuffleCompleted) {
-        return res.status(400).json({ message: "Shuffle has already been completed. Reset first to shuffle again." });
+        return res.status(400).json({ message: "Shuffle has already been completed. Reset first." });
       }
 
       const participants = await storage.getAllParticipants();
@@ -212,11 +210,11 @@ export async function registerRoutes(
 
       await storage.deleteAllAssignments();
 
-      // Sattolo's algorithm guaranteed derangement
+      // Sattolo's algorithm
       const ids = participants.map(p => p.id);
       const receivers = [...ids];
       for (let i = receivers.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * i); // j < i
+        const j = Math.floor(Math.random() * i);
         [receivers[i], receivers[j]] = [receivers[j], receivers[i]];
       }
 
@@ -234,7 +232,7 @@ export async function registerRoutes(
   });
 
   // Reset shuffle (admin only)
-  app.post("/api/reset", requireAdmin, async (req, res) => {
+  app.post("/api/reset", requireAdmin, async (_req, res) => {
     try {
       await storage.deleteAllAssignments();
       await storage.setShuffleCompleted(false);
