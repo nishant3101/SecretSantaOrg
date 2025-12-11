@@ -10,12 +10,12 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   //
-  // AUTH ROUTES (login/logout)
+  // AUTH ROUTES
   //
   setupAuth(app);
 
   //
-  // Legacy requireAuth (not used for admin anymore)
+  // (OPTIONAL) simple requireAuth for participant routes — keep or remove
   //
   const requireAuth = (req: any, res: any, next: any) => {
     if (!req.isAuthenticated || !req.isAuthenticated()) {
@@ -25,53 +25,37 @@ export async function registerRoutes(
   };
 
   //
-  // NEW STATELESS ADMIN CHECK
-  //
-  const requireAdmin = (req: any, res: any, next: any) => {
-    const token = req.headers["x-admin-secret"];
-    if (!token || token !== process.env.ADMIN_SECRET) {
-      return res.status(403).json({ message: "Forbidden" });
-    }
-    next();
-  };
-
-  //
   // -----------------------------
-  // PUBLIC READ ENDPOINTS
+  // PUBLIC READ ROUTES
   // -----------------------------
   //
 
-  // Get app state (shuffle status)
   app.get("/api/app-state", async (_req, res) => {
     try {
       const state = await storage.getAppState();
       res.json(state);
     } catch (error) {
-      console.error("Get app state error:", error);
       res.status(500).json({ message: "Failed to get app state" });
     }
   });
 
-  // Get all participants (PUBLIC READ)
-  // This stays open so the admin dashboard can load participants without auth
   app.get("/api/participants", async (_req, res) => {
     try {
       const participants = await storage.getAllParticipants();
       res.json(participants);
     } catch (error) {
-      console.error("Get participants error:", error);
       res.status(500).json({ message: "Failed to get participants" });
     }
   });
 
   //
   // -----------------------------
-  // ADMIN WRITE ENDPOINTS
+  // PUBLIC WRITE ROUTES (NO SECURITY)
   // -----------------------------
   //
 
-  // Create participant (admin only)
-  app.post("/api/participants", requireAdmin, async (req, res) => {
+  // Create participant (NO ADMIN CHECK)
+  app.post("/api/participants", async (req, res) => {
     try {
       const { username, password } = req.body;
 
@@ -88,11 +72,6 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Username already exists" });
       }
 
-      const state = await storage.getAppState();
-      if (state.shuffleCompleted) {
-        return res.status(400).json({ message: "Cannot add participants after shuffle. Reset first." });
-      }
-
       const user = await storage.createUser({
         username,
         password,
@@ -101,118 +80,80 @@ export async function registerRoutes(
 
       res.status(201).json(user);
     } catch (error) {
-      console.error("Create participant error:", error);
       res.status(500).json({ message: "Failed to create participant" });
     }
   });
 
-  // Delete participant (admin only)
-  app.delete("/api/participants/:id", requireAdmin, async (req, res) => {
+  // Delete participant (NO ADMIN CHECK)
+  app.delete("/api/participants/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-
-      const state = await storage.getAppState();
-      if (state.shuffleCompleted) {
-        return res.status(400).json({ message: "Cannot delete participants after shuffle. Reset first." });
-      }
-
       await storage.deleteUser(id);
       res.sendStatus(200);
     } catch (error) {
-      console.error("Delete participant error:", error);
       res.status(500).json({ message: "Failed to delete participant" });
     }
   });
 
   //
   // -----------------------------
-  // PARTICIPANT WISHLIST ROUTES
+  // PARTICIPANT WISHLIST
+  // (Optional: remove requireAuth if you want NO SECURITY AT ALL)
   // -----------------------------
   //
 
-  // Get current user's wishlist
   app.get("/api/my-wishlist", requireAuth, async (req, res) => {
     try {
       const wishlist = await storage.getWishlistByUserId(req.user!.id);
       res.json(wishlist || null);
     } catch (error) {
-      console.error("Get wishlist error:", error);
       res.status(500).json({ message: "Failed to get wishlist" });
     }
   });
 
-  // Update wishlist
   app.post("/api/my-wishlist", requireAuth, async (req, res) => {
     try {
       const { item1, item2, item3 } = req.body;
 
-      const trimmedItem1 = item1?.trim() || "";
-      const trimmedItem2 = item2?.trim() || "";
-      const trimmedItem3 = item3?.trim() || "";
-
-      if (!trimmedItem1 && !trimmedItem2 && !trimmedItem3) {
-        return res.status(400).json({ message: "At least one wishlist item is required" });
-      }
-
       const wishlist = await storage.createOrUpdateWishlist(
         req.user!.id,
-        trimmedItem1 || undefined,
-        trimmedItem2 || undefined,
-        trimmedItem3 || undefined
+        item1?.trim() || undefined,
+        item2?.trim() || undefined,
+        item3?.trim() || undefined
       );
 
       await storage.updateUserWishlistStatus(req.user!.id, true);
 
-      const updatedUser = await storage.getUser(req.user!.id);
-
-      res.json({ wishlist, user: updatedUser });
+      res.json({ wishlist });
     } catch (error) {
-      console.error("Save wishlist error:", error);
       res.status(500).json({ message: "Failed to save wishlist" });
     }
   });
 
   //
   // -----------------------------
-  // SECRET SANTA ASSIGNMENT ROUTES
+  // SECRET SANTA SHUFFLE (NO ADMIN CHECK)
   // -----------------------------
   //
 
-  // Get current user's assignment
-  app.get("/api/my-assignment", requireAuth, async (req, res) => {
+  app.post("/api/shuffle", async (_req, res) => {
     try {
-      const assignment = await storage.getAssignmentByGiverId(req.user!.id);
-      res.json(assignment || null);
-    } catch (error) {
-      console.error("Get assignment error:", error);
-      res.status(500).json({ message: "Failed to get assignment" });
-    }
-  });
-
-  // Shuffle assignments (admin only)
-  app.post("/api/shuffle", requireAdmin, async (_req, res) => {
-    try {
-      const state = await storage.getAppState();
-      if (state.shuffleCompleted) {
-        return res.status(400).json({ message: "Shuffle has already been completed. Reset first." });
-      }
-
       const participants = await storage.getAllParticipants();
 
       if (participants.length < 3) {
         return res.status(400).json({ message: "Need at least 3 participants to shuffle" });
       }
 
-      const allCompleted = participants.every(p => p.wishlistCompleted);
+      const allCompleted = participants.every((p) => p.wishlistCompleted);
       if (!allCompleted) {
-        return res.status(400).json({ message: "Not all participants have completed their wishlists" });
+        return res.status(400).json({ message: "Some participants have not completed their wishlists" });
       }
 
       await storage.deleteAllAssignments();
 
-      // Sattolo's algorithm
-      const ids = participants.map(p => p.id);
+      const ids = participants.map((p) => p.id);
       const receivers = [...ids];
+
       for (let i = receivers.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * i);
         [receivers[i], receivers[j]] = [receivers[j], receivers[i]];
@@ -224,21 +165,21 @@ export async function registerRoutes(
 
       await storage.setShuffleCompleted(true);
 
-      res.json({ message: "Shuffle completed successfully" });
+      res.json({ message: "Shuffle completed" });
     } catch (error) {
-      console.error("Shuffle error:", error);
       res.status(500).json({ message: "Failed to shuffle" });
     }
   });
 
-  // Reset shuffle (admin only)
-  app.post("/api/reset", requireAdmin, async (_req, res) => {
+  //
+  // Reset shuffle (NO ADMIN CHECK)
+  //
+  app.post("/api/reset", async (_req, res) => {
     try {
       await storage.deleteAllAssignments();
       await storage.setShuffleCompleted(false);
       res.json({ message: "Reset completed" });
     } catch (error) {
-      console.error("Reset error:", error);
       res.status(500).json({ message: "Failed to reset" });
     }
   });
