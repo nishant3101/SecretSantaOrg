@@ -1,44 +1,55 @@
-import { createContext, ReactNode, useContext } from "react";
 import {
-  useQuery,
-  useMutation,
-  UseMutationResult,
-} from "@tanstack/react-query";
-import { User as SelectUser, InsertUser } from "@shared/schema";
-import { getQueryFn, apiRequest, queryClient } from "../lib/queryClient";
+  createContext,
+  ReactNode,
+  useContext,
+  useState,
+} from "react";
+import { useMutation, UseMutationResult } from "@tanstack/react-query";
+import { User as SelectUser } from "@shared/schema";
+
+import { apiRequest } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+
+import { setCurrentUser, clearCurrentUser } from "../lib/userStore";
 
 type AuthContextType = {
   user: SelectUser | null;
-  isLoading: boolean;
-  error: Error | null;
   loginMutation: UseMutationResult<SelectUser, Error, LoginData>;
-  logoutMutation: UseMutationResult<void, Error, void>;
-  registerMutation: UseMutationResult<SelectUser, Error, InsertUser>;
+  logout: () => void;
 };
 
-type LoginData = Pick<InsertUser, "username" | "password">;
+type LoginData = {
+  username: string;
+  password: string;
+};
 
+// Context container
 export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
-  const {
-    data: user,
-    error,
-    isLoading,
-  } = useQuery<SelectUser | undefined, Error>({
-    queryKey: ["/api/user"],
-    queryFn: getQueryFn({ on401: "returnNull" }),
-  });
 
+  // Stateless: only store user in React memory
+  const [user, setUser] = useState<SelectUser | null>(null);
+
+  /**
+   * LOGIN MUTATION
+   * Calls POST /api/login and sets user in React + global store
+   */
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
       const res = await apiRequest("POST", "/api/login", credentials);
-      return await res.json();
+      const body = await res.json();
+
+      if (!body.success || !body.user) {
+        throw new Error(body.message || "Invalid username or password");
+      }
+
+      return body.user as SelectUser;
     },
-    onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
+    onSuccess: (loggedInUser: SelectUser) => {
+      setUser(loggedInUser);
+      setCurrentUser(loggedInUser); // allow global x-user-id injection
     },
     onError: (error: Error) => {
       toast({
@@ -49,48 +60,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const registerMutation = useMutation({
-    mutationFn: async (credentials: InsertUser) => {
-      const res = await apiRequest("POST", "/api/register", credentials);
-      return await res.json();
-    },
-    onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Registration failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const logoutMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("POST", "/api/logout");
-    },
-    onSuccess: () => {
-      queryClient.setQueryData(["/api/user"], null);
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Logout failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
+  /**
+   * LOGOUT — simply clears memory (stateless)
+   */
+  const logout = () => {
+    setUser(null);
+    clearCurrentUser();
+  };
 
   return (
     <AuthContext.Provider
       value={{
-        user: user ?? null,
-        isLoading,
-        error,
+        user,
         loginMutation,
-        logoutMutation,
-        registerMutation,
+        logout,
       }}
     >
       {children}
@@ -98,6 +81,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// Hook to use auth
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {
