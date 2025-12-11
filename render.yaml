@@ -1,0 +1,32 @@
+services:
+  # ---- BACKEND SERVICE ----
+  - type: web
+    name: santa-backend
+    env: node
+    rootDir: server
+    buildCommand: "npm install && npm run migrate"
+    startCommand: "npm start"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: santa-db
+        name: connectionString
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_SECRET
+        generateValue: true
+    autoDeploy: true
+
+  # ---- FRONTEND SERVICE ----
+  - type: static
+    name: santa-frontend
+    rootDir: client
+    buildCommand: "npm install && npm run build"
+    publishPath: "dist"
+    envVars:
+      - key: VITE_API_URL
+        # Automatically inject backend URL
+        value: https://santa-backend.onrender.com
+
+databases:
+  - name: santa-db
+    plan: free
