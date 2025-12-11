@@ -13,10 +13,10 @@ export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-// ⭐ DB Initialization (runs every deploy)
+// ⭐ SAFE DB Initialization (runs every restart but WITHOUT deleting anything)
 (async () => {
   try {
-    // 1) Ensure session table
+    // 1) Ensure session table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS "session" (
         "sid" text PRIMARY KEY,
@@ -26,20 +26,25 @@ export const pool = new Pool({
     `);
     console.log("Session table verified.");
 
-    // 2) CLEAR all users (fresh start every deploy)
-    await pool.query(`DELETE FROM users;`);
-    console.log("All users deleted.");
-
-    // 3) Insert fixed admin account
-    const adminPassword = await hashPassword("A1AB2BC2C");
-
-    await pool.query(
-      `INSERT INTO users (username, password, role, wishlist_completed) 
-       VALUES ($1, $2, 'admin', false);`,
-      ["admin", adminPassword]
+    // 2) Ensure admin exists, but DO NOT delete anyone
+    const adminResult = await pool.query(
+      `SELECT id FROM users WHERE username = 'admin' LIMIT 1;`
     );
 
-    console.log("Admin user recreated (username: admin).");
+    if (adminResult.rows.length === 0) {
+      const adminPassword = await hashPassword("A1AB2BC2C");
+
+      await pool.query(
+        `INSERT INTO users (username, password, role, wishlist_completed)
+         VALUES ($1, $2, 'admin', false);`,
+        ["admin", adminPassword]
+      );
+
+      console.log("Admin user created (username: admin).");
+    } else {
+      console.log("Admin already exists — not recreating.");
+    }
+
   } catch (err) {
     console.error("DB init error:", err);
   }
